@@ -91,7 +91,30 @@ class SummarizeTables(object):
             parameterType="Optional",
             direction="Input")
 
-        params = [input_table, output_workspace, variable_fields, key_field, percentage_field, null_value, exclude_null]
+        delete_existing_output = arcpy.Parameter(
+            displayName="Deleting Existing Output Tables if Found?",
+            name="deleting_existing_output",
+            datatype="GPBoolean",
+            parameterType="Optional",
+            direction="Input"
+        )
+        create_relationship_class = arcpy.Parameter(
+            displayName="Create a relationship class? ",
+            name="create_relationship_class",
+            datatype="GPBoolean",
+            parameterType="Optional",
+            direction="Input"
+        )
+
+        params = [input_table,
+                  output_workspace,
+                  variable_fields,
+                  key_field,
+                  percentage_field,
+                  null_value,
+                  exclude_null,
+                  delete_existing_output,
+                  create_relationship_class]
         return params
 
     def isLicensed(self):
@@ -127,6 +150,8 @@ class SummarizeTables(object):
         percentage_field = parameters[4].valueAsText
         null_value = parameters[5].valueAsText
         exclude_null = parameters[6].valueAsText
+        delete_existing_output = parameters[7].valueAsText
+        create_relationship_class = parameters[8].valueAsText
 
         variables = variable_fields.split(';')
         sum_percentage_field = "SUM_" + percentage_field  # Name of summed percentage field
@@ -158,19 +183,23 @@ class SummarizeTables(object):
         
             arcpy.AddMessage("%s %s %s" %("Making", "table", "view"))
             arcpy.MakeTableView_management(input_table, table_view, table_query)
-            temp_table = os.path.join("in_memory", "TEMP" + var)  # Temp table location and name
+            temp_table = os.path.join(output_workspace, "TEMP" + var)  # Temp table location and name
             output_table = os.path.join(output_workspace, "SUM_" + var)  # Output table location and name
         
             # CHECK IF THE OUTPUT TABLE EXISTS, IF IT DOES, DELETE IT/RENAME IT
         
             if arcpy.Exists(temp_table):
-                arcpy.AddMessage("%s: %s, %s!" % ("Found", temp_table, "deleting"))
+                arcpy.AddMessage("Temp table for %s, found, deleting!" % (var,))
                 arcpy.Delete_management(temp_table)
             else:
                 pass
             if arcpy.Exists(output_table):
-                arcpy.AddMessage("%s: %s, %s %s!" % ("Found", output_table, "skipping", var))
-                continue
+                if delete_existing_output == "true":
+                    arcpy.AddMessage("Output table for %s, found, deleting!" % var)
+                    arcpy.Delete_management(output_table)
+                else:
+                    arcpy.AddMessage("Output table for %s, found, skipping!" % var)
+                    continue
             else:
                 pass
         
@@ -195,19 +224,19 @@ class SummarizeTables(object):
         
             arcpy.AddMessage("Joining values to final table")
             arcpy.JoinField_management(output_table, join_field, temp_table, join_field, [var])
-        
-            arcpy.AddMessage("Creating Relationship Class")
-            output_relationship_path = os.path.join(output_workspace,
-                                                    os.path.basename(output_table) + "_" + os.path.basename(input_table))
-            forward_label = var + " > " + os.path.basename(input_table)
-            backward_label = os.path.basename(input_table) + " > " + var
-            arcpy.CreateRelationshipClass_management(output_table, input_table, output_relationship_path, "SIMPLE",
-                                                     forward_label, backward_label, "#", "#", "#", key_field, key_field)
+
+            if create_relationship_class == "true":
+                arcpy.AddMessage("Creating Relationship Class")
+                output_relationship_path = os.path.join(output_workspace,
+                                                        os.path.basename(output_table) + "_" + os.path.basename(input_table))
+                forward_label = var + " > " + os.path.basename(input_table)
+                backward_label = os.path.basename(input_table) + " > " + var
+                arcpy.CreateRelationshipClass_management(output_table, input_table, output_relationship_path, "SIMPLE",
+                                                         forward_label, backward_label, "#", "#", "#", key_field, key_field)
         
             arcpy.AddMessage("Cleaning up temporary tables")
             arcpy.DeleteField_management(output_table, join_field)
             arcpy.Delete_management(temp_table)
             arcpy.Delete_management(table_view)
-
 
         return
